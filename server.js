@@ -132,6 +132,43 @@ app.post('/create-subscription', async (req, res) => {
   }
 });
 
+// Cancel a subscription
+app.post('/cancel-subscription', async (req, res) => {
+  try {
+    const { customerId } = req.body;
+
+    if (!customerId) {
+      return res.status(400).json({ error: 'Customer ID is required' });
+    }
+
+    // List all active subscriptions for this customer
+    const subscriptions = await stripe.subscriptions.list({
+      customer: customerId,
+      status: 'active',
+      limit: 10,
+    });
+
+    if (subscriptions.data.length === 0) {
+      return res.status(404).json({ error: 'No active subscription found' });
+    }
+
+    // Cancel all active subscriptions (usually just one)
+    const canceledSubscriptions = [];
+    for (const subscription of subscriptions.data) {
+      const canceled = await stripe.subscriptions.cancel(subscription.id);
+      canceledSubscriptions.push(canceled.id);
+    }
+
+    res.json({
+      success: true,
+      canceledSubscriptions,
+    });
+  } catch (error) {
+    console.error('Error canceling subscription:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Webhook endpoint for Stripe events
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
@@ -184,7 +221,7 @@ app.get('/', (req, res) => {
   res.json({
     service: 'Eventer Payment API',
     status: 'running',
-    endpoints: ['/create-subscription', '/create-payment-intent', '/health']
+    endpoints: ['/create-subscription', '/create-payment-intent', '/cancel-subscription', '/health']
   });
 });
 

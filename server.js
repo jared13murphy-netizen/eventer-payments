@@ -173,9 +173,24 @@ app.post('/create-subscription', async (req, res) => {
     // Create subscription with payment behavior
     const subscription = await stripe.subscriptions.create(subscriptionOptions);
 
+    // Check if there's a payment intent (won't exist for 100% off coupons)
+    const paymentIntent = subscription.latest_invoice?.payment_intent;
+
+    // If no payment is required (100% discount), subscription is already active
+    if (!paymentIntent) {
+      res.json({
+        subscriptionId: subscription.id,
+        paymentIntent: null,
+        ephemeralKey: ephemeralKey.secret,
+        customer: customer.id,
+        noPaymentRequired: true,
+      });
+      return;
+    }
+
     res.json({
       subscriptionId: subscription.id,
-      paymentIntent: subscription.latest_invoice.payment_intent.client_secret,
+      paymentIntent: paymentIntent.client_secret,
       ephemeralKey: ephemeralKey.secret,
       customer: customer.id,
     });

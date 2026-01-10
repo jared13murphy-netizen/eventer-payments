@@ -79,10 +79,47 @@ app.post('/create-payment-intent', async (req, res) => {
   }
 });
 
+// Validate a promo code
+app.post('/validate-promo', async (req, res) => {
+  try {
+    const { promoCode } = req.body;
+
+    if (!promoCode) {
+      return res.status(400).json({ valid: false, error: 'Promo code is required' });
+    }
+
+    // Look up the promotion code in Stripe
+    const promotionCodes = await stripe.promotionCodes.list({
+      code: promoCode.toUpperCase(),
+      active: true,
+      limit: 1,
+    });
+
+    if (promotionCodes.data.length === 0) {
+      return res.json({ valid: false });
+    }
+
+    const promoCodeObj = promotionCodes.data[0];
+    const coupon = promoCodeObj.coupon;
+
+    res.json({
+      valid: true,
+      promoCodeId: promoCodeObj.id,
+      percentOff: coupon.percent_off,
+      amountOff: coupon.amount_off,
+      duration: coupon.duration,
+      durationInMonths: coupon.duration_in_months,
+    });
+  } catch (error) {
+    console.error('Error validating promo code:', error);
+    res.status(500).json({ valid: false, error: error.message });
+  }
+});
+
 // Create a subscription (for recurring payments)
 app.post('/create-subscription', async (req, res) => {
   try {
-    const { priceId, customerEmail, customerId } = req.body;
+    const { priceId, customerEmail, customerId, promoCode } = req.body;
 
     // Create or retrieve customer
     let customer;
@@ -108,8 +145,8 @@ app.post('/create-subscription', async (req, res) => {
       { apiVersion: '2023-10-16' }
     );
 
-    // Create subscription with payment behavior
-    const subscription = await stripe.subscriptions.create({
+    // Build subscription options
+    const subscriptionOptions = {
       customer: customer.id,
       items: [{ price: priceId }],
       payment_behavior: 'default_incomplete',
@@ -118,7 +155,23 @@ app.post('/create-subscription', async (req, res) => {
       metadata: {
         eventer_user_id: customerId,
       },
-    });
+    };
+
+    // Apply promo code if provided
+    if (promoCode) {
+      const promotionCodes = await stripe.promotionCodes.list({
+        code: promoCode.toUpperCase(),
+        active: true,
+        limit: 1,
+      });
+
+      if (promotionCodes.data.length > 0) {
+        subscriptionOptions.promotion_code = promotionCodes.data[0].id;
+      }
+    }
+
+    // Create subscription with payment behavior
+    const subscription = await stripe.subscriptions.create(subscriptionOptions);
 
     res.json({
       subscriptionId: subscription.id,
@@ -221,7 +274,7 @@ app.get('/', (req, res) => {
   res.json({
     service: 'Eventer Payment API',
     status: 'running',
-    endpoints: ['/create-subscription', '/create-payment-intent', '/cancel-subscription', '/health']
+    endpoints: ['/create-subscription', '/create-payment-intent', '/cancel-subscription', '/validate-promo', '/health']
   });
 });
 

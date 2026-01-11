@@ -158,21 +158,9 @@ app.post('/create-subscription', async (req, res) => {
       },
     });
 
-    const latestInvoice = subscription.latest_invoice;
-    const paymentIntent = latestInvoice?.payment_intent;
-
-    console.log('Subscription created:', subscription.id);
-    console.log('Invoice status:', latestInvoice?.status);
-    console.log('PaymentIntent exists:', !!paymentIntent);
-
-    if (!paymentIntent) {
-      console.error('No payment intent - invoice:', JSON.stringify(latestInvoice, null, 2));
-      throw new Error('No payment intent created. Invoice status: ' + (latestInvoice?.status || 'no invoice'));
-    }
-
     res.json({
       subscriptionId: subscription.id,
-      paymentIntent: paymentIntent.client_secret,
+      paymentIntent: subscription.latest_invoice.payment_intent.client_secret,
       ephemeralKey: ephemeralKey.secret,
       customer: customer.id,
     });

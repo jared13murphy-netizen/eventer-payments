@@ -117,9 +117,10 @@ app.post('/validate-promo', async (req, res) => {
 });
 
 // Create a subscription (for recurring payments)
+// Promo codes are entered directly in the Stripe payment sheet
 app.post('/create-subscription', async (req, res) => {
   try {
-    const { priceId, customerEmail, customerId, promoCode } = req.body;
+    const { priceId, customerEmail, customerId } = req.body;
 
     // Create or retrieve customer
     let customer;
@@ -145,8 +146,8 @@ app.post('/create-subscription', async (req, res) => {
       { apiVersion: '2023-10-16' }
     );
 
-    // Build subscription options
-    const subscriptionOptions = {
+    // Create subscription with incomplete payment - promo codes handled in payment sheet
+    const subscription = await stripe.subscriptions.create({
       customer: customer.id,
       items: [{ price: priceId }],
       payment_behavior: 'default_incomplete',
@@ -155,47 +156,12 @@ app.post('/create-subscription', async (req, res) => {
       metadata: {
         eventer_user_id: customerId,
       },
-    };
+    });
 
-    // Apply promo code if provided
-    if (promoCode) {
-      const promotionCodes = await stripe.promotionCodes.list({
-        code: promoCode.toUpperCase(),
-        active: true,
-        limit: 1,
-      });
-
-      if (promotionCodes.data.length > 0) {
-        subscriptionOptions.promotion_code = promotionCodes.data[0].id;
-      }
-    }
-
-    // Create subscription with payment behavior
-    const subscription = await stripe.subscriptions.create(subscriptionOptions);
-
-    // Check if there's a payment intent (won't exist for 100% off coupons)
     const paymentIntent = subscription.latest_invoice?.payment_intent;
 
-    // If no payment is required (100% discount), we still need to collect card details
-    // for future billing when the promo expires. Create a SetupIntent for this.
     if (!paymentIntent) {
-      const setupIntent = await stripe.setupIntents.create({
-        customer: customer.id,
-        payment_method_types: ['card'],
-        usage: 'off_session', // Allow charging the card later without customer present
-        metadata: {
-          subscription_id: subscription.id,
-          eventer_user_id: customerId,
-        },
-      });
-
-      res.json({
-        subscriptionId: subscription.id,
-        setupIntent: setupIntent.client_secret,
-        ephemeralKey: ephemeralKey.secret,
-        customer: customer.id,
-      });
-      return;
+      throw new Error('Failed to create payment intent for subscription');
     }
 
     res.json({

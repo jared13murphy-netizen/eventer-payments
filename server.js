@@ -176,14 +176,24 @@ app.post('/create-subscription', async (req, res) => {
     // Check if there's a payment intent (won't exist for 100% off coupons)
     const paymentIntent = subscription.latest_invoice?.payment_intent;
 
-    // If no payment is required (100% discount), subscription is already active
+    // If no payment is required (100% discount), we still need to collect card details
+    // for future billing when the promo expires. Create a SetupIntent for this.
     if (!paymentIntent) {
+      const setupIntent = await stripe.setupIntents.create({
+        customer: customer.id,
+        payment_method_types: ['card'],
+        usage: 'off_session', // Allow charging the card later without customer present
+        metadata: {
+          subscription_id: subscription.id,
+          eventer_user_id: customerId,
+        },
+      });
+
       res.json({
         subscriptionId: subscription.id,
-        paymentIntent: null,
+        setupIntent: setupIntent.client_secret,
         ephemeralKey: ephemeralKey.secret,
         customer: customer.id,
-        noPaymentRequired: true,
       });
       return;
     }

@@ -172,12 +172,28 @@ app.post('/create-subscription', async (req, res) => {
 
     const subscription = await stripe.subscriptions.create(subscriptionOptions);
 
-    res.json({
-      subscriptionId: subscription.id,
-      paymentIntent: subscription.latest_invoice.payment_intent.client_secret,
-      ephemeralKey: ephemeralKey.secret,
-      customer: customer.id,
-    });
+    // Check if payment is required (won't have payment_intent for 100% off promos)
+    const paymentIntent = subscription.latest_invoice?.payment_intent;
+
+    if (paymentIntent) {
+      // Normal case: payment required
+      res.json({
+        subscriptionId: subscription.id,
+        paymentIntent: paymentIntent.client_secret,
+        ephemeralKey: ephemeralKey.secret,
+        customer: customer.id,
+      });
+    } else {
+      // 100% off promo: no payment needed, subscription is already active
+      res.json({
+        subscriptionId: subscription.id,
+        paymentIntent: null,
+        ephemeralKey: ephemeralKey.secret,
+        customer: customer.id,
+        subscriptionStatus: subscription.status,
+        freeSubscription: true,
+      });
+    }
   } catch (error) {
     console.error('Error creating subscription:', error);
     res.status(500).json({ error: error.message });

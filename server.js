@@ -117,10 +117,9 @@ app.post('/validate-promo', async (req, res) => {
 });
 
 // Create a subscription (for recurring payments)
-// Promo codes are entered directly in the Stripe payment sheet
 app.post('/create-subscription', async (req, res) => {
   try {
-    const { priceId, customerEmail, customerId } = req.body;
+    const { priceId, customerEmail, customerId, promoCode } = req.body;
 
     // Create or retrieve customer
     let customer;
@@ -146,8 +145,8 @@ app.post('/create-subscription', async (req, res) => {
       { apiVersion: '2023-10-16' }
     );
 
-    // Create subscription with incomplete payment - promo codes handled in payment sheet
-    const subscription = await stripe.subscriptions.create({
+    // Build subscription options
+    const subscriptionOptions = {
       customer: customer.id,
       items: [{ price: priceId }],
       payment_behavior: 'default_incomplete',
@@ -156,7 +155,22 @@ app.post('/create-subscription', async (req, res) => {
       metadata: {
         eventer_user_id: customerId,
       },
-    });
+    };
+
+    // Apply promo code if provided
+    if (promoCode) {
+      const promotionCodes = await stripe.promotionCodes.list({
+        code: promoCode.toUpperCase(),
+        active: true,
+        limit: 1,
+      });
+
+      if (promotionCodes.data.length > 0) {
+        subscriptionOptions.promotion_code = promotionCodes.data[0].id;
+      }
+    }
+
+    const subscription = await stripe.subscriptions.create(subscriptionOptions);
 
     res.json({
       subscriptionId: subscription.id,

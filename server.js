@@ -116,6 +116,69 @@ app.post('/validate-promo', async (req, res) => {
   }
 });
 
+// Validate Apple In-App Purchase receipt
+app.post('/validate-apple-receipt', async (req, res) => {
+  try {
+    const { receiptData, userId } = req.body;
+
+    if (!receiptData) {
+      return res.status(400).json({ success: false, error: 'Missing receipt data' });
+    }
+
+    const sharedSecret = process.env.APPLE_SHARED_SECRET;
+    if (!sharedSecret) {
+      console.error('APPLE_SHARED_SECRET not configured');
+      return res.status(500).json({ success: false, error: 'Server configuration error' });
+    }
+
+    // Try production first
+    let result = await validateWithApple(receiptData, sharedSecret, 'https://buy.itunes.apple.com/verifyReceipt');
+
+    // If sandbox receipt, retry with sandbox URL
+    if (result.status === 21007) {
+      result = await validateWithApple(receiptData, sharedSecret, 'https://sandbox.itunes.apple.com/verifyReceipt');
+    }
+
+    if (result.status === 0) {
+      const tier = getTierFromReceipt(result);
+      return res.json({ success: true, tier, userId });
+    }
+
+    return res.json({ success: false, error: `Apple validation failed with status: ${result.status}` });
+  } catch (error) {
+    console.error('Error validating Apple receipt:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+async function validateWithApple(receiptData, sharedSecret, url) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      'receipt-data': receiptData,
+      'password': sharedSecret,
+      'exclude-old-transactions': true,
+    }),
+  });
+  return response.json();
+}
+
+function getTierFromReceipt(receipt) {
+  const TIER_MAP = {
+    'plus_monthly': 'plus',
+    'plus_annual': 'plus',
+    'pro_monthly': 'pro',
+    'pro_annual': 'pro',
+    'all_access_monthly': 'all_access',
+    'all_access_annual': 'all_access',
+  };
+
+  const latestInfo = receipt.latest_receipt_info?.[0];
+  if (!latestInfo) return null;
+  return TIER_MAP[latestInfo.product_id] || null;
+}
+
 // Create a subscription (for recurring payments)
 app.post('/create-subscription', async (req, res) => {
   try {
@@ -289,7 +352,7 @@ app.get('/', (req, res) => {
   res.json({
     service: 'Eventer Payment API',
     status: 'running',
-    endpoints: ['/create-subscription', '/create-payment-intent', '/cancel-subscription', '/validate-promo', '/health']
+    endpoints: ['/create-subscription', '/create-payment-intent', '/cancel-subscription', '/validate-promo', '/validate-apple-receipt', '/health']
   });
 });
 

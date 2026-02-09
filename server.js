@@ -4,6 +4,11 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
+const { Pool } = require('pg');
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
 
 const app = express();
 
@@ -141,6 +146,26 @@ app.post('/validate-apple-receipt', async (req, res) => {
 
     if (result.status === 0) {
       const tier = getTierFromReceipt(result);
+
+      // Update user's plan and subscription status in database
+      if (userId && tier) {
+        const planMap = {
+          'plus': 'fan',
+          'pro': 'fan_plus',
+          'all_access': 'coach',
+        };
+        const dbPlan = planMap[tier] || 'free';
+        try {
+          await pool.query(
+            'UPDATE users SET plan = $1, subscription_status = $2, updated_at = NOW() WHERE id = $3',
+            [dbPlan, 'active', userId]
+          );
+          console.log('[validate-apple-receipt] Updated user', userId, 'to plan:', dbPlan);
+        } catch (dbError) {
+          console.error('[validate-apple-receipt] Failed to update user:', dbError);
+        }
+      }
+
       return res.json({ success: true, tier, userId });
     }
 

@@ -191,12 +191,12 @@ async function validateWithApple(receiptData, sharedSecret, url) {
 
 function getTierFromReceipt(receipt) {
   const TIER_MAP = {
-    'plus_monthly': 'plus',
-    'plus_annual': 'plus',
-    'pro_monthly': 'pro',
-    'pro_annual': 'pro',
-    'all_access_monthly': 'all_access',
-    'all_access_annual': 'all_access',
+    'plus_monthly1': 'plus',
+    'plus_annual1': 'plus',
+    'pro_monthly1': 'pro',
+    'pro_annual1': 'pro',
+    'all_access_monthly1': 'all_access',
+    'all_access_annual1': 'all_access',
   };
 
   const latestInfo = receipt.latest_receipt_info?.[0];

@@ -145,7 +145,7 @@ app.post('/validate-apple-receipt', async (req, res) => {
     }
 
     if (result.status === 0) {
-      const tier = getTierFromReceipt(result);
+      const { tier, productId, originalTransactionId } = getTierFromReceipt(result);
 
       // Update user's plan and subscription status in database
       if (userId && tier) {
@@ -157,10 +157,10 @@ app.post('/validate-apple-receipt', async (req, res) => {
         const dbPlan = planMap[tier] || 'free';
         try {
           await pool.query(
-            'UPDATE users SET plan = $1, subscription_status = $2, updated_at = NOW() WHERE id = $3',
-            [dbPlan, 'active', userId]
+            'UPDATE users SET plan = $1, subscription_status = $2, payment_source = $3, app_store_original_transaction_id = $4, iap_product_id = $5, updated_at = NOW() WHERE id = $6',
+            [dbPlan, 'active', 'app_store', originalTransactionId, productId, userId]
           );
-          console.log('[validate-apple-receipt] Updated user', userId, 'to plan:', dbPlan);
+          console.log('[validate-apple-receipt] Updated user', userId, 'to plan:', dbPlan, 'product:', productId);
         } catch (dbError) {
           console.error('[validate-apple-receipt] Failed to update user:', dbError);
         }
@@ -199,9 +199,35 @@ function getTierFromReceipt(receipt) {
     'all_access_annual1': 'all_access',
   };
 
-  const latestInfo = receipt.latest_receipt_info?.[0];
-  if (!latestInfo) return null;
-  return TIER_MAP[latestInfo.product_id] || null;
+  const receiptInfo = receipt.latest_receipt_info;
+  if (!receiptInfo || receiptInfo.length === 0) return { tier: null, productId: null, originalTransactionId: null };
+
+  // Find the most recent active subscription (sort by expiration date descending)
+  const now = Date.now();
+  const sorted = [...receiptInfo].sort((a, b) => {
+    const expiresA = parseInt(a.expires_date_ms || '0', 10);
+    const expiresB = parseInt(b.expires_date_ms || '0', 10);
+    return expiresB - expiresA;
+  });
+
+  // Prefer an active subscription
+  for (const info of sorted) {
+    const expiresMs = parseInt(info.expires_date_ms || '0', 10);
+    if (expiresMs > now && TIER_MAP[info.product_id]) {
+      return {
+        tier: TIER_MAP[info.product_id],
+        productId: info.product_id,
+        originalTransactionId: info.original_transaction_id,
+      };
+    }
+  }
+
+  // Fall back to the most recent one
+  return {
+    tier: TIER_MAP[sorted[0].product_id] || null,
+    productId: sorted[0].product_id,
+    originalTransactionId: sorted[0].original_transaction_id,
+  };
 }
 
 // Create a subscription (for recurring payments)
